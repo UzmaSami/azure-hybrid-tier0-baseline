@@ -1,0 +1,55 @@
+id: c41e7a90-2d58-4b13-8f6c-1a7d9e0b3c32
+kind: Scheduled
+name: Tier-0 - Kerberoasting burst of RC4 service tickets
+description: |
+  One account requesting RC4-encrypted service tickets for several distinct SPNs in ten minutes.
+  Tune the threshold and exclude known scanners after a baseline period.
+severity: Medium
+status: Available
+requiredDataConnectors:
+  - connectorId: SecurityEvents
+    dataTypes:
+      - SecurityEvent
+queryFrequency: 10m
+queryPeriod: 1h
+triggerOperator: gt
+triggerThreshold: 0
+tactics:
+  - CredentialAccess
+relevantTechniques:
+  - T1558.003
+query: |
+  // AMA leaves TargetUserName/IpAddress empty for 4769, so read them from EventData.
+  SecurityEvent
+  | where EventID == 4769
+  | extend Enc       = extract(@'TicketEncryptionType">(0x[0-9A-Fa-f]+)<', 1, EventData),
+           Svc       = extract(@'ServiceName">([^<]+)<', 1, EventData),
+           Result    = extract(@'Status">(0x[0-9A-Fa-f]+)<', 1, EventData),
+           Requester = extract(@'TargetUserName">([^<]+)<', 1, EventData),
+           SrcIp     = trim_start(@'::ffff:', extract(@'IpAddress">([^<]+)<', 1, EventData))
+  | where Enc == "0x17" and Result == "0x0"
+  | where Svc !endswith "$" and Svc !~ "krbtgt"
+  | extend AccountName   = tostring(split(Requester, "@")[0]),
+           AccountDomain = tostring(split(Requester, "@")[1])
+  | summarize Services = dcount(Svc), ServiceList = make_set(Svc, 20)
+            by AccountName, AccountDomain, SrcIp, bin(TimeGenerated, 10m)
+  | where Services >= 3
+entityMappings:
+  - entityType: Account
+    fieldMappings:
+      - identifier: Name
+        columnName: AccountName
+      - identifier: NTDomain
+        columnName: AccountDomain
+  - entityType: IP
+    fieldMappings:
+      - identifier: Address
+        columnName: SrcIp
+incidentConfiguration:
+  createIncident: true
+  groupingConfiguration:
+    enabled: true
+    reopenClosedIncident: false
+    lookbackDuration: 1d
+    matchingMethod: AllEntities
+version: 1.2.0

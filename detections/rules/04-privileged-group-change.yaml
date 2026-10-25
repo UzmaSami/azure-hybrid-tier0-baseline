@@ -1,0 +1,47 @@
+id: 5e9b3d16-8a47-4c2e-b5f1-9d0a6c4e8f43
+kind: Scheduled
+name: Tier-0 - Member added to privileged AD group
+description: |
+  Membership change to a privileged group. Every hit should map to an approved change ticket.
+severity: High
+status: Available
+requiredDataConnectors:
+  - connectorId: SecurityEvents
+    dataTypes:
+      - SecurityEvent
+queryFrequency: 5m
+queryPeriod: 1h
+triggerOperator: gt
+triggerThreshold: 0
+tactics:
+  - Persistence
+  - PrivilegeEscalation
+relevantTechniques:
+  - T1098
+query: |
+  let PrivGroups = dynamic(["Domain Admins", "Enterprise Admins", "Schema Admins", "Administrators",
+                            "Account Operators", "Backup Operators", "Group Policy Creator Owners"]);
+  SecurityEvent
+  | where EventID in (4728, 4732, 4756)
+  | where TargetUserName in~ (PrivGroups)
+  | project TimeGenerated, Computer, Actor = SubjectUserName, ActorDomain = SubjectDomainName,
+            Group = TargetUserName, MemberName, MemberSid
+entityMappings:
+  - entityType: Account
+    fieldMappings:
+      - identifier: Name
+        columnName: Actor
+      - identifier: NTDomain
+        columnName: ActorDomain
+  - entityType: Host
+    fieldMappings:
+      - identifier: HostName
+        columnName: Computer
+incidentConfiguration:
+  createIncident: true
+  groupingConfiguration:
+    enabled: true
+    reopenClosedIncident: false
+    lookbackDuration: 1d
+    matchingMethod: AllEntities
+version: 1.1.0

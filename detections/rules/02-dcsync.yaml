@@ -1,0 +1,53 @@
+id: 8b2d94e7-5c31-4f6a-a1d0-6e9f3b2c5d21
+kind: Scheduled
+name: Tier-0 - DCSync replication requested by non-DC account
+description: |
+  Directory replication rights exercised by a user account. Prerequisites: Audit Directory
+  Service Access enabled and a SACL on the domain root for the replication GUIDs.
+severity: High
+status: Available
+requiredDataConnectors:
+  - connectorId: SecurityEvents
+    dataTypes:
+      - SecurityEvent
+queryFrequency: 5m
+queryPeriod: 1h
+triggerOperator: gt
+triggerThreshold: 0
+tactics:
+  - CredentialAccess
+relevantTechniques:
+  - T1003.006
+query: |
+  // AMA leaves SubjectUserName/SubjectDomainName empty for many 4662 events,
+  // so the requesting account is read from EventData instead.
+  SecurityEvent
+  | where EventID == 4662
+  | where Properties has_any ("1131f6aa-9c07-11d1-f79f-00c04fc2dcd2",
+                              "1131f6ad-9c07-11d1-f79f-00c04fc2dcd2",
+                              "89e95b76-444d-4c62-991a-0facbeda640c")
+  | extend Account = extract(@'SubjectUserName">([^<]+)<', 1, EventData),
+           Domain  = extract(@'SubjectDomainName">([^<]+)<', 1, EventData),
+           Object  = extract(@'ObjectName">([^<]+)<', 1, EventData)
+  | where isnotempty(Account) and Account !endswith "$"
+  | summarize FirstSeen = min(TimeGenerated), Events = count(), Objects = make_set(Object, 20)
+            by Computer, Domain, Account
+entityMappings:
+  - entityType: Account
+    fieldMappings:
+      - identifier: Name
+        columnName: Account
+      - identifier: NTDomain
+        columnName: Domain
+  - entityType: Host
+    fieldMappings:
+      - identifier: HostName
+        columnName: Computer
+incidentConfiguration:
+  createIncident: true
+  groupingConfiguration:
+    enabled: true
+    reopenClosedIncident: false
+    lookbackDuration: 1d
+    matchingMethod: AllEntities
+version: 1.2.0

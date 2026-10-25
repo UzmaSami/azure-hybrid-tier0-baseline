@@ -1,0 +1,87 @@
+name: hybrid-baseline
+
+on:
+  pull_request:
+    paths: ['infra/**', 'policies/**', 'detections/**', 'scripts/**', 'tests/**', '.github/workflows/**']
+  push:
+    branches: [main]
+    paths: ['infra/**', 'policies/**', 'detections/**', 'scripts/**']
+
+permissions:
+  id-token: write        # OIDC federation — no client secrets stored in GitHub
+  contents: read
+
+env:
+  LOCATION: uksouth
+  MONITORING_RG: rg-secops-monitoring-lab
+  WORKSPACE: law-secops-lab-uksouth
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Pester (rules, scripts, policy, IaC guardrails)
+        shell: pwsh
+        run: ./tests/Invoke-Tests.ps1
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: pester-results
+          path: tests/test-results.xml
+
+  validate:
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: azure/login@v2
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Bicep build + lint
+        run: az bicep build --file infra/main.bicep
+
+      - name: PSRule for Azure (Well-Architected security rules)
+        uses: microsoft/ps-rule@v2
+        with:
+          modules: PSRule.Rules.Azure
+
+      - name: Fail if any built-in policy ID no longer exists
+        run: |
+          set -e
+          for id in 72650e9f-97bc-4b2a-ab5f-9781a9fcecbc 94f686d6-9a24-4e19-91f1-de937dc171a4 \
+                    eab1f514-22e3-42e3-9a1f-e1dc9199355c ea3f2387-9b95-492a-a190-fcdc54f7b070; do
+            az policy definition show --name "$id" --query displayName -o tsv
+          done
+          az policy set-definition show --name 89c6cddc-1c73-4ac1-b19c-54d1a15a42f2 --query displayName -o tsv
+
+      - name: What-if (reviewed on the PR)
+        run: |
+          az deployment sub what-if --location $LOCATION \
+            --template-file infra/main.bicep --parameters infra/main.bicepparam
+
+  deploy:
+    needs: validate
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment: production   # required reviewers gate the apply
+    steps:
+      - uses: actions/checkout@v4
+      - uses: azure/login@v2
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+          enable-AzPSSession: true
+      - name: Deploy infrastructure
+        run: |
+          az deployment sub create --name "baseline-${{ github.sha }}" --location $LOCATION \
+            --template-file infra/main.bicep --parameters infra/main.bicepparam
+      - name: Deploy Sentinel analytics rules
+        shell: pwsh
+        run: |
+          Install-Module powershell-yaml -Scope CurrentUser -Force
+          ./scripts/Deploy-SentinelRules.ps1 -ResourceGroup $env:MONITORING_RG -WorkspaceName $env:WORKSPACE

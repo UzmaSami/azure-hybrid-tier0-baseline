@@ -1,0 +1,47 @@
+{
+  "properties": {
+    "displayName": "[Tier-0] Arc-enabled Windows servers must be compliant with the Azure Windows baseline",
+    "description": "Tier-0-scoped view of baseline compliance so identity servers can be reported, exempted and alerted on separately from the general server estate.",
+    "policyType": "Custom",
+    "mode": "Indexed",
+    "metadata": {
+      "category": "Guest Configuration",
+      "version": "1.0.0",
+      "guestConfiguration": {
+        "name": "AzureWindowsBaseline",
+        "version": "1.*"
+      }
+    },
+    "parameters": {
+      "effect": {
+        "type": "String",
+        "defaultValue": "AuditIfNotExists",
+        "allowedValues": ["AuditIfNotExists", "Disabled"]
+      },
+      "tierTagValue": {
+        "type": "String",
+        "defaultValue": "0"
+      }
+    },
+    "policyRule": {
+      "if": {
+        "allOf": [
+          { "field": "type", "equals": "Microsoft.HybridCompute/machines" },
+          { "field": "Microsoft.HybridCompute/imageOffer", "like": "windows*" },
+          { "field": "tags['tier']", "equals": "[parameters('tierTagValue')]" }
+        ]
+      },
+      "then": {
+        "effect": "[parameters('effect')]",
+        "details": {
+          "type": "Microsoft.GuestConfiguration/guestConfigurationAssignments",
+          "name": "AzureWindowsBaseline",
+          "existenceCondition": {
+            "field": "Microsoft.GuestConfiguration/guestConfigurationAssignments/complianceStatus",
+            "equals": "Compliant"
+          }
+        }
+      }
+    }
+  }
+}

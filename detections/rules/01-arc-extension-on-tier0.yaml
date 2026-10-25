@@ -1,0 +1,49 @@
+id: 3f6a1c52-7b0e-4d59-9a3e-2c1d8e4b7a10
+kind: Scheduled
+name: Tier-0 - Extension or Run Command written to Arc server
+description: |
+  Arc write access equals SYSTEM on the server. Any extension or Run Command write against
+  a Tier-0 Arc machine outside a change window should be treated as a possible domain compromise.
+severity: High
+status: Available
+requiredDataConnectors:
+  - connectorId: AzureActivity
+    dataTypes:
+      - AzureActivity
+queryFrequency: 5m
+queryPeriod: 1h
+triggerOperator: gt
+triggerThreshold: 0
+tactics:
+  - Execution
+  - LateralMovement
+relevantTechniques:
+  - T1072
+query: |
+  AzureActivity
+  | where OperationNameValue has_any ("MICROSOFT.HYBRIDCOMPUTE/MACHINES/EXTENSIONS/WRITE",
+                                      "MICROSOFT.HYBRIDCOMPUTE/MACHINES/RUNCOMMANDS/WRITE")
+  | where _ResourceId contains "/resourcegroups/rg-tier0-"
+  | project TimeGenerated, Caller, CallerIpAddress, OperationNameValue,
+            ActivityStatusValue, ResourceId = _ResourceId, CorrelationId
+entityMappings:
+  - entityType: Account
+    fieldMappings:
+      - identifier: FullName
+        columnName: Caller
+  - entityType: IP
+    fieldMappings:
+      - identifier: Address
+        columnName: CallerIpAddress
+  - entityType: AzureResource
+    fieldMappings:
+      - identifier: ResourceId
+        columnName: ResourceId
+incidentConfiguration:
+  createIncident: true
+  groupingConfiguration:
+    enabled: true
+    reopenClosedIncident: false
+    lookbackDuration: 1d
+    matchingMethod: AllEntities
+version: 1.1.0

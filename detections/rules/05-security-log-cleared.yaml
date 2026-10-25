@@ -1,0 +1,42 @@
+id: a7d20f68-3b95-4e1c-9c84-5f2b1e7a6d54
+kind: Scheduled
+name: Tier-0 - Security event log cleared
+description: |
+  Event 1102 on a domain controller is a strong defence-evasion signal.
+severity: High
+status: Available
+requiredDataConnectors:
+  - connectorId: SecurityEvents
+    dataTypes:
+      - SecurityEvent
+queryFrequency: 5m
+queryPeriod: 1h
+triggerOperator: gt
+triggerThreshold: 0
+tactics:
+  - DefenseEvasion
+relevantTechniques:
+  - T1070.001
+query: |
+  SecurityEvent
+  | where EventID == 1102
+  | project TimeGenerated, Computer, AccountName = SubjectUserName, AccountDomain = SubjectDomainName
+entityMappings:
+  - entityType: Account
+    fieldMappings:
+      - identifier: Name
+        columnName: AccountName
+      - identifier: NTDomain
+        columnName: AccountDomain
+  - entityType: Host
+    fieldMappings:
+      - identifier: HostName
+        columnName: Computer
+incidentConfiguration:
+  createIncident: true
+  groupingConfiguration:
+    enabled: true
+    reopenClosedIncident: false
+    lookbackDuration: 1d
+    matchingMethod: AllEntities
+version: 1.1.0
